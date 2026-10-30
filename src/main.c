@@ -3,7 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 static void usage(FILE *f) {
     fprintf(f,
@@ -60,6 +62,13 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    char sema_err[256];
+    if (sema_check(prog, sema_err, sizeof sema_err) != 0) {
+        fprintf(stderr, "kite: %s: %s\n", input, sema_err);
+        program_free(prog);
+        return 1;
+    }
+
     char asm_path[4096];
     if (asm_only) {
         snprintf(asm_path, sizeof asm_path, "%s", output);
@@ -71,19 +80,23 @@ int main(int argc, char **argv) {
     char err[256];
     if (gen_program(prog, out, err, sizeof err) != 0) {
         fclose(out);
+        unlink(asm_path);
         fprintf(stderr, "kite: %s: %s\n", input, err);
+        program_free(prog);
         return 1;
     }
     fclose(out);
+    program_free(prog);
 
     if (!asm_only) {
         char cmd[4400];
         snprintf(cmd, sizeof cmd, "cc -nostdlib -static -o '%s' '%s'", output, asm_path);
-        if (system(cmd) != 0) {
+        int rc = system(cmd);
+        unlink(asm_path);
+        if (rc != 0) {
             fprintf(stderr, "kite: assembler/linker failed\n");
             return 1;
         }
-        unlink(asm_path);
     }
     return 0;
 }
