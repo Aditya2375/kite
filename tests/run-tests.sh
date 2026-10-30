@@ -48,6 +48,28 @@ for src in tests/programs/*.kt examples/*.kt; do
     unset code
 done
 
+# error goldens: every bad program must fail with its exact recorded message
+for src in tests/errors/*.kt; do
+    name=$(basename "$src" .kt)
+    want=$(cat "tests/errors/$name.err")
+    set +e
+    got=$(./build/kite "$src" -o "$OUT/$name" 2>&1)
+    rc=$?
+    set -e
+    if [ "$rc" -eq 0 ]; then
+        echo "FAIL $name: compiled but should not" >&2
+        exit 1
+    fi
+    got=${got#kite: $src: }   # strip the compiler and path prefix
+    if [ "$got" != "$want" ]; then
+        echo "FAIL $name: wrong error message" >&2
+        echo "want: $want" >&2
+        echo "got:  $got" >&2
+        exit 1
+    fi
+    echo "PASS error: $name"
+done
+
 # error cases: compilation must fail, not crash
 printf 'fn main() { return nosuchvar; }' > "$OUT/bad.kt"
 if ./build/kite "$OUT/bad.kt" -o "$OUT/bad" 2>/dev/null; then
