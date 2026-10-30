@@ -89,11 +89,18 @@ int main(int argc, char **argv) {
     program_free(prog);
 
     if (!asm_only) {
-        char cmd[4400];
-        snprintf(cmd, sizeof cmd, "cc -nostdlib -static -o '%s' '%s'", output, asm_path);
-        int rc = system(cmd);
+        /* no shell: paths with quotes or spaces cannot inject anything */
+        pid_t pid = fork();
+        if (pid < 0) { perror("fork"); unlink(asm_path); return 1; }
+        if (pid == 0) {
+            execlp("cc", "cc", "-nostdlib", "-static", "-o", output, asm_path, (char *)NULL);
+            _exit(127);
+        }
+        int status = 0;
+        while (waitpid(pid, &status, 0) < 0)
+            if (errno != EINTR) { perror("waitpid"); unlink(asm_path); return 1; }
         unlink(asm_path);
-        if (rc != 0) {
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
             fprintf(stderr, "kite: assembler/linker failed\n");
             return 1;
         }
