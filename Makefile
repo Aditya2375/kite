@@ -1,7 +1,7 @@
 CC      ?= cc
 CFLAGS  ?= -std=gnu11 -O2 -g -Wall -Wextra -Werror -Isrc
 BIN     := build/kite
-SRCS    := src/main.c src/lex.c src/parse.c src/gen.c
+SRCS    := src/main.c src/lex.c src/parse.c src/sema.c src/gen.c
 
 all: $(BIN)
 
