@@ -36,6 +36,7 @@ enum expr_kind { E_INT, E_VAR, E_BINOP, E_CALL };
 
 struct expr {
     enum expr_kind kind;
+    int line;                   /* source line for diagnostics */
     long value;                 /* E_INT */
     char *name;                 /* E_VAR, E_CALL */
     enum tok_kind op;           /* E_BINOP */
@@ -48,6 +49,7 @@ enum stmt_kind { S_LET, S_ASSIGN, S_IF, S_WHILE, S_RETURN, S_PRINT, S_EXPR };
 
 struct stmt {
     enum stmt_kind kind;
+    int line;                   /* source line for diagnostics */
     char *name;                 /* S_LET, S_ASSIGN */
     struct expr *expr;          /* S_LET, S_ASSIGN, S_RETURN, S_PRINT, S_EXPR */
     struct expr *cond;          /* S_IF, S_WHILE */
@@ -78,6 +80,11 @@ struct parser {
 
 struct program *parse_program(struct parser *ps);
 void program_free(struct program *prog);
+
+/* ---- semantic analysis ---- */
+/* Resolve every name, check arity, duplicates, and scoping before codegen.
+   Returns 0, or -1 with a line-numbered message in err. */
+int sema_check(const struct program *prog, char *err, int err_cap);
 
 /* ---- codegen ---- */
 /* Emit x86-64 AT&T assembly for the program to out. Returns 0 or -1 with err. */

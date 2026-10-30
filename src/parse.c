@@ -39,12 +39,14 @@ static struct expr *parse_primary(struct parser *ps) {
     if (t->kind == T_INT) {
         next(ps);
         struct expr *e = expr_new(E_INT);
+        e->line = t->line;
         e->value = t->value;
         return e;
     }
     if (t->kind == T_IDENT) {
         next(ps);
         struct expr *e = expr_new(E_VAR);
+        e->line = t->line;
         e->name = strdup(t->text);
         if (accept(ps, T_LPAREN)) {          /* call */
             e->kind = E_CALL;
@@ -131,8 +133,10 @@ static struct stmt **parse_block(struct parser *ps, int *count) {
 
 static struct stmt *parse_stmt(struct parser *ps) {
     struct token *t = peek(ps);
+    int line = t->line;
     if (accept(ps, T_LET)) {
         struct stmt *s = stmt_new(S_LET);
+        s->line = line;
         struct token *name = next(ps);
         if (name->kind != T_IDENT) { snprintf(ps->err, sizeof ps->err, "line %d: expected a name after 'let'", t->line); return NULL; }
         s->name = strdup(name->text);
@@ -143,6 +147,7 @@ static struct stmt *parse_stmt(struct parser *ps) {
     }
     if (accept(ps, T_IF)) {
         struct stmt *s = stmt_new(S_IF);
+        s->line = line;
         s->cond = parse_expr(ps);
         if (!s->cond) return NULL;
         s->then_body = parse_block(ps, &s->nthen);
@@ -155,6 +160,7 @@ static struct stmt *parse_stmt(struct parser *ps) {
     }
     if (accept(ps, T_WHILE)) {
         struct stmt *s = stmt_new(S_WHILE);
+        s->line = line;
         s->cond = parse_expr(ps);
         if (!s->cond) return NULL;
         s->body = parse_block(ps, &s->nbody);
@@ -163,6 +169,7 @@ static struct stmt *parse_stmt(struct parser *ps) {
     }
     if (accept(ps, T_RETURN)) {
         struct stmt *s = stmt_new(S_RETURN);
+        s->line = line;
         if (peek(ps)->kind != T_SEMI) {
             s->expr = parse_expr(ps);
             if (!s->expr) return NULL;
@@ -172,6 +179,7 @@ static struct stmt *parse_stmt(struct parser *ps) {
     }
     if (accept(ps, T_PRINT)) {
         struct stmt *s = stmt_new(S_PRINT);
+        s->line = line;
         if (expect(ps, T_LPAREN, "'(' after print")) return NULL;
         s->expr = parse_expr(ps);
         if (!s->expr) return NULL;
@@ -182,6 +190,7 @@ static struct stmt *parse_stmt(struct parser *ps) {
         next(ps);
         next(ps);
         struct stmt *s = stmt_new(S_ASSIGN);
+        s->line = line;
         s->name = strdup(t->text);
         s->expr = parse_expr(ps);
         if (!s->expr || expect(ps, T_SEMI, "';'")) return NULL;
@@ -189,6 +198,7 @@ static struct stmt *parse_stmt(struct parser *ps) {
     }
     /* expression statement */
     struct stmt *s = stmt_new(S_EXPR);
+    s->line = line;
     s->expr = parse_expr(ps);
     if (!s->expr || expect(ps, T_SEMI, "';'")) return NULL;
     return s;
