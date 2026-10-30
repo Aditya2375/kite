@@ -13,6 +13,8 @@ struct gen {
     FILE *out;
     struct local locals[256];
     int nlocals;
+    int marks[64];          /* per-block start index into locals[] */
+    int depth;
     int stack_size;
     int label;
     char err[256];
@@ -93,16 +95,30 @@ static int gen_expr(struct gen *g, const struct expr *e) {
 static int gen_stmt(struct gen *g, const struct stmt *s);
 
 static int gen_block(struct gen *g, struct stmt **body, int n) {
+    /* A block is a scope: names declared inside die at its end. */
+    int mark = g->nlocals;
+    if (g->depth < 64) g->marks[g->depth++] = mark;
+    int rc = 0;
     for (int i = 0; i < n; i++)
-        if (gen_stmt(g, body[i]) != 0) return -1;
-    return 0;
+        if (gen_stmt(g, body[i]) != 0) { rc = -1; break; }
+    for (int i = mark; i < g->nlocals; i++) { free(g->locals[i].name); g->locals[i].name = NULL; }
+    g->nlocals = mark;
+    if (g->depth > 0) g->depth--;
+    return rc;
 }
+
+/* current scope starts at the innermost block mark */
+static int scope_start(struct gen *g) { return g->depth > 0 ? g->marks[g->depth - 1] : 0; }
 
 static int gen_stmt(struct gen *g, const struct stmt *s) {
     FILE *o = g->out;
     switch (s->kind) {
     case S_LET: {
-        if (find_local(g, s->name)) { snprintf(g->err, sizeof g->err, "'%s' is already defined", s->name); return -1; }
+        for (int i = scope_start(g); i < g->nlocals; i++)
+            if (strcmp(g->locals[i].name, s->name) == 0) {
+                snprintf(g->err, sizeof g->err, "'%s' is already defined in this scope", s->name);
+                return -1;
+            }
         if (gen_expr(g, s->expr) != 0) return -1;
         int off = add_local(g, s->name);
         if (!off) return -1;
