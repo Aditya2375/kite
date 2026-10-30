@@ -1,0 +1,4 @@
+fn add(a, b) { return a + b; }
+fn main() {
+    return add(1);
+}
