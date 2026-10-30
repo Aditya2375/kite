@@ -87,3 +87,13 @@ tests/    unit suites and compile-and-run programs with golden output
 examples/ fib.kt, fizzbuzz.kt
 docs/     architecture notes
 ```
+
+## Tested / not tested
+
+Tested here: 26 lexer/parser unit checks, and every fixture compiled and
+executed for real on x86-64 Linux with golden stdout and asserted exit
+codes, plus negative tests that bad programs fail to compile.
+
+Not tested: non-x86-64 targets (codegen is x86-64 Linux only), programs
+large enough to stress the fixed 256-local limit, and any optimization
+(there is no optimizer by design - correctness first).
