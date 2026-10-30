@@ -1,6 +1,8 @@
 #include "kite.h"
 
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,7 +11,7 @@ static struct token tok(enum tok_kind k, const char *text, size_t len, int line)
     struct token t;
     t.kind = k;
     t.text = strndup(text, len);
-    t.value = k == T_INT ? strtol(text, NULL, 10) : 0;
+    t.value = k == T_INT ? strtol(text, NULL, 10) : 0;   /* range-checked by the caller */
     t.line = line;
     return t;
 }
@@ -52,7 +54,17 @@ int lex_all(struct lexer *lx, struct token **out, int *count) {
         if (isdigit((unsigned char)c)) {
             const char *s = lx->p;
             while (isdigit((unsigned char)*lx->p)) lx->p++;
-            PUSH(tok(T_INT, s, (size_t)(lx->p - s), lx->line));
+            size_t len = (size_t)(lx->p - s);
+            errno = 0;
+            char *end = NULL;
+            long v = strtol(s, &end, 10);
+            if (errno == ERANGE || end != s + len) {
+                snprintf(lx->err, sizeof lx->err,
+                    "line %d: integer literal '%.*s' is out of range", lx->line, (int)len, s);
+                goto fail;
+            }
+            (void)v;
+            PUSH(tok(T_INT, s, len, lx->line));
             continue;
         }
         lx->p++;
@@ -99,4 +111,8 @@ int lex_all(struct lexer *lx, struct token **out, int *count) {
     *out = ts;
     *count = n;
     return 0;
+fail:
+    for (int i = 0; i < n; i++) free(ts[i].text);
+    free(ts);
+    return -1;
 }
