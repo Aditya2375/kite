@@ -2,8 +2,9 @@
 
 A small compiled programming language. kite programs compile to native
 x86-64 Linux executables - the compiler lexes, parses, and type-checks
-names, then emits real assembly, assembled and linked with the system C
-toolchain. No runtime, no garbage collector, no dependencies: the output
+names, then runs a semantic pass (name resolution, arity, scoping), then emits
+real assembly, assembled and linked with the system C toolchain - invoked
+directly with exec, never through a shell. No runtime, no garbage collector, no dependencies: the output
 binary is static and starts at `_start` with raw syscalls.
 
 ```
@@ -42,12 +43,25 @@ compiler emitted.
   understood, all the way down to the register.
 - **Functions** with up to six parameters (the SysV register convention),
   recursion, and lexical scope inside a function body.
-- **`let` bindings and assignment** with definite-name checking: using an
-  undefined variable is a compile error, and redeclaring a name is too.
+- **`let` bindings and assignment** with block scope: a name lives from its
+  declaration to the end of its block, an inner block may shadow an outer
+  name, and using a name outside its scope is a compile error.
 - **`if`/`else` and `while`** with any expression as the condition
   (zero is false, everything else is true).
 - **Arithmetic and comparison**: `+ - * / %`, `== != < <= > >=`, parentheses,
   unary minus, and conventional precedence.
+
+### Division semantics
+
+`/` and `%` lower to a single x86-64 `idiv`. Two inputs make the hardware
+trap and the kernel raises `SIGFPE`, exactly as in C on this platform:
+
+- division by zero, and
+- `INT64_MIN / -1` (or `%`), whose quotient does not fit in 64 bits.
+
+Both are the program's fault, not the compiler's: kite checks your names and
+your scopes, and the machine checks your arithmetic. A program that might
+divide by zero should test its divisor first.
 - **`print(expr)`** writes the decimal value and a newline to stdout.
 - **Comments** start with `#`.
 
@@ -58,8 +72,10 @@ The program's exit code is `main`'s return value.
 Compile errors name the file, the line, and what was expected:
 
 ```text
-kite: bad.kt: undefined variable 'nosuchvar'
+kite: bad.kt: line 3: undefined variable 'nosuchvar'
 kite: bad.kt: line 3: expected ';'
+kite: bad.kt: line 5: call to undefined function 'hepler'
+kite: bad.kt: 'add' takes 2 argument(s), got 1
 ```
 
 ## Architecture
@@ -73,26 +89,28 @@ stack-machine codegen model, and the calling convention.
 ./tests/run-tests.sh
 ```
 
-Lexer and parser unit suites (26 checks), then every program in
-`tests/programs/` and `examples/` is compiled and run for real; stdout is
-diffed against the expected file and exit codes are checked. Negative tests
-assert that bad programs fail to compile instead of crashing. CI runs the
-same script on every push.
+Lexer and parser unit suites (26 checks), then ten programs in
+`tests/programs/` and `examples/` are compiled and run for real; stdout is
+diffed against the expected file and exit codes are checked. Eight error
+fixtures in `tests/errors/` assert the exact diagnostic the compiler prints
+for each bad program. CI runs the same script on every push.
 
 ## Layout
 
 ```text
-src/      lex.c, parse.c (AST), gen.c (x86-64 codegen), main.c
-tests/    unit suites and compile-and-run programs with golden output
+src/      lex.c, parse.c (AST), sema.c (semantic pass), gen.c (x86-64), main.c
+tests/    unit suites, compile-and-run programs, error-message fixtures
 examples/ fib.kt, fizzbuzz.kt
 docs/     architecture notes
 ```
 
 ## Tested / not tested
 
-Tested here: 26 lexer/parser unit checks, and every fixture compiled and
+Tested here: 26 lexer/parser unit checks, ten programs compiled and
 executed for real on x86-64 Linux with golden stdout and asserted exit
-codes, plus negative tests that bad programs fail to compile.
+codes, and eight error fixtures asserting the exact diagnostic text.
+Division traps (divide by zero, INT64_MIN / -1) verified to raise SIGFPE
+at runtime as documented.
 
 Not tested: non-x86-64 targets (codegen is x86-64 Linux only), programs
 large enough to stress the fixed 256-local limit, and any optimization

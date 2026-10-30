@@ -3,13 +3,14 @@
 ## Pipeline
 
 ```text
-source -> tokens -> AST -> x86-64 assembly -> system assembler/linker -> static executable
-         (lex.c)  (parse.c)  (gen.c)
+source -> tokens -> AST -> checked AST -> x86-64 assembly -> assembler/linker -> static executable
+         (lex.c)  (parse.c)  (sema.c)      (gen.c)
 ```
 
-Three passes with plain data between them: lexing never sees the grammar,
-parsing never sees registers, codegen never sees characters. Each pass
-reports errors with a line number and stops.
+Four passes with plain data between them: lexing never sees the grammar,
+parsing never sees registers, the semantic pass never sees instructions,
+codegen never sees characters. Each pass reports errors with a line number
+and stops.
 
 ## lex.c
 
@@ -25,6 +26,22 @@ C programmer expects, and parentheses override. Statements are a tree of
 explicit kinds (`S_LET`, `S_IF`, `S_WHILE`, ...); there is no desugaring, so
 the AST you read is the program codegen sees.
 
+## sema.c - the semantic pass
+
+Everything codegen assumes is proven here first, with line-numbered errors:
+
+- every called function exists, and the argument count matches its arity
+- every variable is declared and in scope at its use
+- no duplicate function definitions or duplicate parameter names
+- no redeclaration of a name in the same scope
+- a `main` function exists
+
+Scoping is lexical: a scope stack is pushed per block, a name is visible
+from its declaration to the end of that block, and an inner declaration
+shadows an outer one. Codegen mirrors the same discipline with a mark stack
+over its local-slot table, so a name declared in an `if` body stops existing
+at the closing brace.
+
 ## gen.c - the codegen model
 
 **Stack machine on the real stack.** Every expression pushes its 64-bit
@@ -35,7 +52,9 @@ with `%` taking the remainder from `rdx`.
 **Locals in fixed rbp slots.** Each function's parameters and `let` names
 get fixed negative offsets from `rbp`; the frame size is computed before
 emitting the body by counting bindings, so `let` inside any nesting depth
-has a home. Shadowing is rejected at compile time - one name, one slot.
+has a home. Shadowing follows block scope - an inner `let` reusing a name
+gets the innermost slot, and the outer slot is visible again after the
+block.
 
 **Calling convention.** System V AMD64, the subset kite needs: first six
 arguments in `rdi, rsi, rdx, rcx, r8, r9`, result in `rax`. kite functions
