@@ -13,8 +13,9 @@ struct gen {
     FILE *out;
     struct local locals[256];
     int nlocals;
-    int marks[64];          /* per-block start index into locals[] */
+    int marks[128];         /* per-block start index into locals[]; sema caps depth at 128 */
     int depth;
+    int pushes;             /* live expression values on the machine stack */
     int stack_size;
     int label;
     char err[256];
@@ -34,8 +35,18 @@ static int add_local(struct gen *g, const char *name) {
     return g->locals[g->nlocals - 1].offset;
 }
 
-static void push(struct gen *g, const char *reg) { fprintf(g->out, "\tpush %%%s\n", reg); }
-static void pop(struct gen *g, const char *reg) { fprintf(g->out, "\tpop %%%s\n", reg); }
+static void push(struct gen *g, const char *reg) { fprintf(g->out, "\tpush %%%s\n", reg); g->pushes++; }
+static void pop(struct gen *g, const char *reg) { fprintf(g->out, "\tpop %%%s\n", reg); g->pushes--; }
+
+/* The SysV ABI wants rsp 16-byte aligned at the call instruction. The body
+   starts aligned; every live pushed value shifts it by 8, so an odd count
+   needs an 8-byte pad around the call (e.g. a nested call argument). */
+static void call_aligned(struct gen *g, const char *target) {
+    int pad = g->pushes % 2;
+    if (pad) fprintf(g->out, "\tsub $8, %%rsp\n");
+    fprintf(g->out, "\tcall %s\n", target);
+    if (pad) fprintf(g->out, "\tadd $8, %%rsp\n");
+}
 
 static int gen_expr(struct gen *g, const struct expr *e) {
     FILE *o = g->out;
@@ -57,7 +68,9 @@ static int gen_expr(struct gen *g, const struct expr *e) {
         for (int i = 0; i < e->nargs; i++)
             if (gen_expr(g, e->args[i]) != 0) return -1;
         for (int i = e->nargs - 1; i >= 0; i--) pop(g, argregs[i]);
-        fprintf(o, "\tcall kite_%s\n", e->name);
+        char target[256];
+        snprintf(target, sizeof target, "kite_%s", e->name);
+        call_aligned(g, target);
         push(g, "rax");
         return 0;
     }
@@ -97,7 +110,8 @@ static int gen_stmt(struct gen *g, const struct stmt *s);
 static int gen_block(struct gen *g, struct stmt **body, int n) {
     /* A block is a scope: names declared inside die at its end. */
     int mark = g->nlocals;
-    if (g->depth < 64) g->marks[g->depth++] = mark;
+    if (g->depth >= 128) { snprintf(g->err, sizeof g->err, "blocks nested too deeply"); return -1; }
+    g->marks[g->depth++] = mark;
     int rc = 0;
     for (int i = 0; i < n; i++)
         if (gen_stmt(g, body[i]) != 0) { rc = -1; break; }
@@ -167,7 +181,7 @@ static int gen_stmt(struct gen *g, const struct stmt *s) {
     case S_PRINT:
         if (gen_expr(g, s->expr) != 0) return -1;
         pop(g, "rdi");
-        fprintf(o, "\tcall kite_print\n");
+        call_aligned(g, "kite_print");
         return 0;
     case S_EXPR:
         if (gen_expr(g, s->expr) != 0) return -1;
@@ -181,6 +195,8 @@ static int gen_func(struct gen *g, const struct func *f) {
     FILE *o = g->out;
     g->nlocals = 0;
     g->stack_size = 0;
+    g->depth = 0;
+    g->pushes = 0;
     /* parameters become locals */
     static const char *argregs[] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
     if (f->nparams > 6) { snprintf(g->err, sizeof g->err, "function '%s' has more than 6 parameters", f->name); return -1; }
@@ -209,7 +225,11 @@ static int gen_func(struct gen *g, const struct func *f) {
     fprintf(o, "\tsub $%d, %%rsp\n", frame);
     for (int i = 0; i < f->nparams; i++)
         fprintf(o, "\tmov %%%s, %d(%%rbp)\n", argregs[i], g->locals[i].offset);
-    if (gen_block(g, f->body, f->nbody) != 0) return -1;
+    int rc = gen_block(g, f->body, f->nbody);
+    /* the block walk frees locals declared inside; parameters remain */
+    for (int i = 0; i < g->nlocals; i++) free(g->locals[i].name);
+    g->nlocals = 0;
+    if (rc != 0) return -1;
     /* fall through: return 0 */
     fprintf(o, "\txor %%eax, %%eax\n\tleave\n\tret\n");
     return 0;

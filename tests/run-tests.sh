@@ -31,7 +31,7 @@ for src in tests/programs/*.kt examples/*.kt; do
             exit 1
         fi
         echo "PASS $name"
-    else
+    elif [ ! -f "tests/programs/$name.exitcode" ]; then
         "$bin" > /dev/null
         echo "PASS $name (runs)"
     fi
