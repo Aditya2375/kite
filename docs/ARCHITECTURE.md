@@ -34,7 +34,12 @@ Everything codegen assumes is proven here first, with line-numbered errors:
 - every variable is declared and in scope at its use
 - no duplicate function definitions or duplicate parameter names
 - no redeclaration of a name in the same scope
-- a `main` function exists
+- a `main` function exists, and it takes no parameters (the runtime calls
+  it with no argument registers set)
+
+The pass also enforces the implementation limits with clean errors instead
+of silent corruption: at most 256 names in one scope and at most 128 nested
+blocks.
 
 Scoping is lexical: a scope stack is pushed per block, a name is visible
 from its declaration to the end of that block, and an inner declaration
@@ -61,6 +66,14 @@ arguments in `rdi, rsi, rdx, rcx, r8, r9`, result in `rax`. kite functions
 are emitted as `kite_<name>` and call each other directly; recursion works
 because everything is on the stack.
 
+**Alignment discipline.** The ABI requires `rsp` to be 16-byte aligned at
+every `call`. A function body starts aligned, and every live expression
+value on the stack shifts it by 8, so the emitter tracks the live push
+count and pads by 8 around a call when the count is odd. This is what
+keeps `f(1, g(2))` correct: at the inner `call` one outer argument is
+still on the stack. Codegen keeps at most 256 locals live per function and
+says so ("too many locals") instead of overflowing its slot table.
+
 **No libc.** The runtime is two hand-written routines: `kite_print`
 converts a signed 64-bit value to decimal and writes it with the `write`
 syscall, and `_start` calls `kite_main` and passes its return value to the
@@ -74,4 +87,8 @@ Unit tests pin the lexer (token streams, values, error lines) and the parser
 compiles every fixture and runs the binary - stdout is golden-filed and the
 exit code is asserted, so a codegen regression shows up as a wrong number
 printed by a real process, not as a diff in assembly text. Negative tests
-compile invalid programs and require a clean error, not a crash.
+compile invalid programs and require the exact line-numbered diagnostic,
+not a crash. A fuzz script feeds mutated and random inputs to the front
+end under ASan/UBSan/LSan - the compiler may reject anything, but it must
+never crash or leak - and a docs guard fails CI when a count quoted in the
+README drifts from the real suite.

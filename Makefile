@@ -1,6 +1,7 @@
 CC      ?= cc
 CFLAGS  ?= -O2 -g
-CFLAGS  += -std=gnu11 -Wall -Wextra -Werror -Isrc
+# required flags survive a user/environment CFLAGS; extras go in EXTRA
+override CFLAGS += -std=gnu11 -Wall -Wextra -Werror -Isrc $(EXTRA)
 BIN     := build/kite
 SRCS    := src/main.c src/lex.c src/parse.c src/sema.c src/gen.c
 

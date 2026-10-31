@@ -89,11 +89,14 @@ stack-machine codegen model, and the calling convention.
 ./tests/run-tests.sh
 ```
 
-Lexer and parser unit suites (26 checks), then ten programs in
+Lexer and parser unit suites (26 checks), then 13 programs in
 `tests/programs/` and `examples/` are compiled and run for real; stdout is
-diffed against the expected file and exit codes are checked. Eight error
+diffed against the expected file and exit codes are checked. 12 error
 fixtures in `tests/errors/` assert the exact diagnostic the compiler prints
-for each bad program. CI runs the same script on every push.
+for each bad program, including line numbers. CI runs the same script on
+every push, and `tests/check-docs.sh` fails CI if the counts in this file
+drift from the real suite. A sanitizer job (ASan/UBSan/LSan) compiles every
+fixture and fuzzes the front end with 580 mutated and random inputs.
 
 ## Layout
 
@@ -106,12 +109,15 @@ docs/     architecture notes
 
 ## Tested / not tested
 
-Tested here: 26 lexer/parser unit checks, ten programs compiled and
+Tested here: 26 lexer/parser unit checks, 13 programs compiled and
 executed for real on x86-64 Linux with golden stdout and asserted exit
-codes, and eight error fixtures asserting the exact diagnostic text.
+codes, and 12 error fixtures asserting the exact diagnostic text.
 Division traps (divide by zero, INT64_MIN / -1) verified to raise SIGFPE
-at runtime as documented.
+at runtime as documented. Nested-call argument evaluation keeps the stack
+16-byte aligned at every call site. The scope limits are enforced with
+clean errors and pinned by fixtures: 256 names per scope, 128 nested
+blocks, 256 live locals in codegen. The compiler itself runs
+ASan/UBSan/LSan-clean over every fixture plus 580 fuzz inputs.
 
-Not tested: non-x86-64 targets (codegen is x86-64 Linux only), programs
-large enough to stress the fixed 256-local limit, and any optimization
-(there is no optimizer by design - correctness first).
+Not tested: non-x86-64 targets (codegen is x86-64 Linux only) and any
+optimization (there is no optimizer by design - correctness first).
