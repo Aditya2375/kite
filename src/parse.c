@@ -71,6 +71,7 @@ static struct expr *parse_primary(struct parser *ps) {
         struct expr *z = expr_new(E_INT);
         z->value = 0;
         struct expr *x = parse_primary(ps);
+        if (!x) { expr_free(z); return NULL; }
         struct expr *e = expr_new(E_BINOP);
         e->op = T_MINUS;
         e->lhs = z;
