@@ -56,7 +56,11 @@ static int lookup(struct ctx *c, const char *name) {
     return 0;
 }
 
-static void declare(struct ctx *c, char *name) {
+static void declare(struct ctx *c, char *name, int line) {
+    if (c->count[c->depth] >= MAX_NAMES_PER_SCOPE) {
+        failf(c, line, "too many names in one scope (limit %d)", MAX_NAMES_PER_SCOPE);
+        return;
+    }
     c->names[c->depth][c->count[c->depth]++] = name;
 }
 
@@ -89,18 +93,22 @@ static void check_expr(struct ctx *c, const struct expr *e) {
     }
 }
 
-static void push_scope(struct ctx *c) {
-    if (c->depth + 1 >= MAX_SCOPE_DEPTH) return;
+static int push_scope(struct ctx *c, int line) {
+    if (c->depth + 1 >= MAX_SCOPE_DEPTH) {
+        failf(c, line, "blocks nested too deeply (limit %d)", MAX_SCOPE_DEPTH);
+        return -1;
+    }
     c->depth++;
     c->count[c->depth] = 0;
+    return 0;
 }
 
 static void pop_scope(struct ctx *c) {
     if (c->depth > 0) c->depth--;
 }
 
-static void check_body(struct ctx *c, struct stmt **body, int n) {
-    push_scope(c);
+static void check_body(struct ctx *c, struct stmt **body, int n, int line) {
+    if (push_scope(c, line) != 0) return;
     for (int i = 0; i < n && !c->failed; i++) {
         struct stmt *s = body[i];
         switch (s->kind) {
@@ -111,7 +119,7 @@ static void check_body(struct ctx *c, struct stmt **body, int n) {
                 failf(c, s->line, "'%s' is already defined in this scope", s->name);
                 break;
             }
-            declare(c, s->name);
+            declare(c, s->name, s->line);
             break;
         case S_ASSIGN:
             if (!lookup(c, s->name)) {
@@ -122,12 +130,12 @@ static void check_body(struct ctx *c, struct stmt **body, int n) {
             break;
         case S_IF:
             check_expr(c, s->cond);
-            check_body(c, s->then_body, s->nthen);
-            check_body(c, s->else_body, s->nelse);
+            check_body(c, s->then_body, s->nthen, s->line);
+            check_body(c, s->else_body, s->nelse, s->line);
             break;
         case S_WHILE:
             check_expr(c, s->cond);
-            check_body(c, s->body, s->nbody);
+            check_body(c, s->body, s->nbody, s->line);
             break;
         case S_RETURN:
         case S_PRINT:
@@ -150,12 +158,17 @@ int sema_check(const struct program *prog, char *err, int err_cap) {
     for (int i = 0; i < prog->nfuncs; i++)
         for (int j = i + 1; j < prog->nfuncs; j++)
             if (strcmp(prog->funcs[i]->name, prog->funcs[j]->name) == 0) {
-                failf(&c, 0, "function '%s' is defined more than once", prog->funcs[i]->name);
+                failf(&c, prog->funcs[j]->line, "function '%s' is defined more than once", prog->funcs[i]->name);
                 return -1;
             }
 
-    if (!find_func(&c, "main")) {
+    const struct func *m = find_func(&c, "main");
+    if (!m) {
         failf(&c, 0, "no main function");
+        return -1;
+    }
+    if (m->nparams != 0) {
+        failf(&c, m->line, "main takes no parameters, got %d", m->nparams);
         return -1;
     }
 
@@ -164,14 +177,14 @@ int sema_check(const struct program *prog, char *err, int err_cap) {
         for (int a = 0; a < f->nparams; a++)
             for (int b = a + 1; b < f->nparams; b++)
                 if (strcmp(f->params[a], f->params[b]) == 0) {
-                    failf(&c, 0, "function '%s' has duplicate parameter '%s'", f->name, f->params[a]);
+                    failf(&c, f->line, "function '%s' has duplicate parameter '%s'", f->name, f->params[a]);
                     return -1;
                 }
         c.depth = 0;
         c.count[0] = 0;
-        for (int a = 0; a < f->nparams; a++) declare(&c, f->params[a]);
+        for (int a = 0; a < f->nparams; a++) declare(&c, f->params[a], f->line);
         /* the body walk pushes its own scope; params live one level out */
-        check_body(&c, f->body, f->nbody);
+        check_body(&c, f->body, f->nbody, f->line);
     }
     return c.failed ? -1 : 0;
 }

@@ -52,11 +52,15 @@ int main(int argc, char **argv) {
     int ntoks = 0;
     if (lex_all(&lx, &toks, &ntoks) != 0) {
         fprintf(stderr, "kite: %s: %s\n", input, lx.err);
+        free(src);
         return 1;
     }
 
     struct parser ps = {.toks = toks, .ntoks = ntoks};
     struct program *prog = parse_program(&ps);
+    /* the AST owns its names; tokens and source are done */
+    tokens_free(toks, ntoks);
+    free(src);
     if (!prog) {
         fprintf(stderr, "kite: %s: %s\n", input, ps.err);
         return 1;

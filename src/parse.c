@@ -26,6 +26,9 @@ static void *xmalloc(size_t n) { void *p = malloc(n); if (!p) { perror("malloc")
 } while (0)
 
 static struct expr *parse_expr(struct parser *ps);
+static void expr_free(struct expr *e);
+static void stmt_free(struct stmt *s);
+static void func_free(struct func *f);
 
 static struct expr *expr_new(enum expr_kind k) {
     struct expr *e = xmalloc(sizeof *e);
@@ -54,13 +57,14 @@ static struct expr *parse_primary(struct parser *ps) {
                 LIST_APPEND(e->args, e->nargs, parse_expr(ps));
                 if (!accept(ps, T_COMMA)) break;
             }
-            if (expect(ps, T_RPAREN, "')' after arguments")) return NULL;
+            if (expect(ps, T_RPAREN, "')' after arguments")) { expr_free(e); return NULL; }
         }
         return e;
     }
     if (accept(ps, T_LPAREN)) {
         struct expr *e = parse_expr(ps);
-        if (expect(ps, T_RPAREN, "')'")) return NULL;
+        if (!e) return NULL;
+        if (expect(ps, T_RPAREN, "')'")) { expr_free(e); return NULL; }
         return e;
     }
     if (accept(ps, T_MINUS)) {               /* unary minus: 0 - x */
@@ -97,7 +101,7 @@ static struct expr *parse_level(struct parser *ps, int level) {
         if (!match) break;
         next(ps);
         struct expr *rhs = parse_level(ps, level + 1);
-        if (!rhs) return NULL;
+        if (!rhs) { expr_free(lhs); return NULL; }
         struct expr *e = expr_new(E_BINOP);
         e->op = k;
         e->lhs = lhs;
@@ -124,10 +128,20 @@ static struct stmt **parse_block(struct parser *ps, int *count) {
     if (expect(ps, T_LBRACE, "'{'")) return NULL;
     while (peek(ps)->kind != T_RBRACE && peek(ps)->kind != T_EOF) {
         struct stmt *s = parse_stmt(ps);
-        if (!s) { free(body); return NULL; }
+        if (!s) {
+            for (int i = 0; i < *count; i++) stmt_free(body[i]);
+            free(body);
+            *count = 0;
+            return NULL;
+        }
         LIST_APPEND(body, *count, s);
     }
-    if (expect(ps, T_RBRACE, "'}'")) { free(body); return NULL; }
+    if (expect(ps, T_RBRACE, "'}'")) {
+        for (int i = 0; i < *count; i++) stmt_free(body[i]);
+        free(body);
+        *count = 0;
+        return NULL;
+    }
     return body;
 }
 
@@ -138,23 +152,23 @@ static struct stmt *parse_stmt(struct parser *ps) {
         struct stmt *s = stmt_new(S_LET);
         s->line = line;
         struct token *name = next(ps);
-        if (name->kind != T_IDENT) { snprintf(ps->err, sizeof ps->err, "line %d: expected a name after 'let'", t->line); return NULL; }
+        if (name->kind != T_IDENT) { snprintf(ps->err, sizeof ps->err, "line %d: expected a name after 'let'", t->line); stmt_free(s); return NULL; }
         s->name = strdup(name->text);
-        if (expect(ps, T_ASSIGN, "'=' in let")) return NULL;
+        if (expect(ps, T_ASSIGN, "'=' in let")) { stmt_free(s); return NULL; }
         s->expr = parse_expr(ps);
-        if (!s->expr || expect(ps, T_SEMI, "';'")) return NULL;
+        if (!s->expr || expect(ps, T_SEMI, "';'")) { stmt_free(s); return NULL; }
         return s;
     }
     if (accept(ps, T_IF)) {
         struct stmt *s = stmt_new(S_IF);
         s->line = line;
         s->cond = parse_expr(ps);
-        if (!s->cond) return NULL;
+        if (!s->cond) { stmt_free(s); return NULL; }
         s->then_body = parse_block(ps, &s->nthen);
-        if (!s->then_body) return NULL;
+        if (!s->then_body) { stmt_free(s); return NULL; }
         if (accept(ps, T_ELSE)) {
             s->else_body = parse_block(ps, &s->nelse);
-            if (!s->else_body) return NULL;
+            if (!s->else_body) { stmt_free(s); return NULL; }
         }
         return s;
     }
@@ -162,9 +176,9 @@ static struct stmt *parse_stmt(struct parser *ps) {
         struct stmt *s = stmt_new(S_WHILE);
         s->line = line;
         s->cond = parse_expr(ps);
-        if (!s->cond) return NULL;
+        if (!s->cond) { stmt_free(s); return NULL; }
         s->body = parse_block(ps, &s->nbody);
-        if (!s->body) return NULL;
+        if (!s->body) { stmt_free(s); return NULL; }
         return s;
     }
     if (accept(ps, T_RETURN)) {
@@ -172,18 +186,18 @@ static struct stmt *parse_stmt(struct parser *ps) {
         s->line = line;
         if (peek(ps)->kind != T_SEMI) {
             s->expr = parse_expr(ps);
-            if (!s->expr) return NULL;
+            if (!s->expr) { stmt_free(s); return NULL; }
         }
-        if (expect(ps, T_SEMI, "';'")) return NULL;
+        if (expect(ps, T_SEMI, "';'")) { stmt_free(s); return NULL; }
         return s;
     }
     if (accept(ps, T_PRINT)) {
         struct stmt *s = stmt_new(S_PRINT);
         s->line = line;
-        if (expect(ps, T_LPAREN, "'(' after print")) return NULL;
+        if (expect(ps, T_LPAREN, "'(' after print")) { stmt_free(s); return NULL; }
         s->expr = parse_expr(ps);
-        if (!s->expr) return NULL;
-        if (expect(ps, T_RPAREN, "')'") || expect(ps, T_SEMI, "';'")) return NULL;
+        if (!s->expr) { stmt_free(s); return NULL; }
+        if (expect(ps, T_RPAREN, "')'") || expect(ps, T_SEMI, "';'")) { stmt_free(s); return NULL; }
         return s;
     }
     if (t->kind == T_IDENT && ps->toks[ps->pos + 1].kind == T_ASSIGN) {
@@ -193,14 +207,14 @@ static struct stmt *parse_stmt(struct parser *ps) {
         s->line = line;
         s->name = strdup(t->text);
         s->expr = parse_expr(ps);
-        if (!s->expr || expect(ps, T_SEMI, "';'")) return NULL;
+        if (!s->expr || expect(ps, T_SEMI, "';'")) { stmt_free(s); return NULL; }
         return s;
     }
     /* expression statement */
     struct stmt *s = stmt_new(S_EXPR);
     s->line = line;
     s->expr = parse_expr(ps);
-    if (!s->expr || expect(ps, T_SEMI, "';'")) return NULL;
+    if (!s->expr || expect(ps, T_SEMI, "';'")) { stmt_free(s); return NULL; }
     return s;
 }
 
@@ -219,11 +233,13 @@ struct program *parse_program(struct parser *ps) {
         struct func *f = xmalloc(sizeof *f);
         memset(f, 0, sizeof *f);
         f->name = strdup(name->text);
-        if (expect(ps, T_LPAREN, "'('")) goto fail;
+        f->line = name->line;
+        if (expect(ps, T_LPAREN, "'('")) { func_free(f); goto fail; }
         while (peek(ps)->kind != T_RPAREN) {
             struct token *p = next(ps);
             if (p->kind != T_IDENT) {
                 snprintf(ps->err, sizeof ps->err, "line %d: expected a parameter name", p->line);
+                func_free(f);
                 goto fail;
             }
             f->params = realloc(f->params, (size_t)(f->nparams + 1) * sizeof *f->params);
@@ -231,15 +247,16 @@ struct program *parse_program(struct parser *ps) {
             f->params[f->nparams++] = strdup(p->text);
             if (!accept(ps, T_COMMA)) break;
         }
-        if (expect(ps, T_RPAREN, "')'")) goto fail;
+        if (expect(ps, T_RPAREN, "')'")) { func_free(f); goto fail; }
         f->body = parse_block(ps, &f->nbody);
-        if (!f->body) goto fail;
+        if (!f->body) { func_free(f); goto fail; }
         prog->funcs = realloc(prog->funcs, (size_t)(prog->nfuncs + 1) * sizeof *prog->funcs);
         if (!prog->funcs) { perror("realloc"); exit(1); }
         prog->funcs[prog->nfuncs++] = f;
     }
     return prog;
 fail:
+    program_free(prog);
     return NULL;
 }
 
@@ -267,17 +284,19 @@ static void stmt_free(struct stmt *s) {
     free(s);
 }
 
+static void func_free(struct func *f) {
+    if (!f) return;
+    for (int j = 0; j < f->nparams; j++) free(f->params[j]);
+    free(f->params);
+    for (int j = 0; j < f->nbody; j++) stmt_free(f->body[j]);
+    free(f->body);
+    free(f->name);
+    free(f);
+}
+
 void program_free(struct program *prog) {
     if (!prog) return;
-    for (int i = 0; i < prog->nfuncs; i++) {
-        struct func *f = prog->funcs[i];
-        for (int j = 0; j < f->nparams; j++) free(f->params[j]);
-        free(f->params);
-        for (int j = 0; j < f->nbody; j++) stmt_free(f->body[j]);
-        free(f->body);
-        free(f->name);
-        free(f);
-    }
+    for (int i = 0; i < prog->nfuncs; i++) func_free(prog->funcs[i]);
     free(prog->funcs);
     free(prog);
 }

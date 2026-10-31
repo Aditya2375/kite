@@ -116,3 +116,9 @@ fail:
     free(ts);
     return -1;
 }
+
+void tokens_free(struct token *toks, int count) {
+    if (!toks) return;
+    for (int i = 0; i < count; i++) free(toks[i].text);
+    free(toks);
+}

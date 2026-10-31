@@ -1,1 +1,1 @@
-function 'f' has duplicate parameter 'a'
+line 1: function 'f' has duplicate parameter 'a'

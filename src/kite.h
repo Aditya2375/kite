@@ -30,6 +30,7 @@ struct lexer {
 };
 
 int lex_all(struct lexer *lx, struct token **out, int *count);
+void tokens_free(struct token *toks, int count);
 
 /* ---- AST ---- */
 enum expr_kind { E_INT, E_VAR, E_BINOP, E_CALL };
@@ -60,6 +61,8 @@ struct stmt {
 
 struct func {
     char *name;
+    int line;                   /* source line of the definition */
+
     char **params;
     int nparams;
     struct stmt **body;
