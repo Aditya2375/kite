@@ -92,6 +92,13 @@ fi
 grep -q "nested too deeply" "$OUT/deep.err" || { echo "FAIL: deep nesting: wrong error:"; cat "$OUT/deep.err"; exit 1; }
 echo "PASS deep nesting rejected cleanly"
 
+# a directory as input must be rejected, not sized with ftell
+if ./build/kite tests -o "$OUT/dirout" 2>/dev/null; then
+    echo "FAIL: directory input compiled" >&2
+    exit 1
+fi
+echo "PASS directory input rejected"
+
 
 sh tests/symlink_test.sh
 echo "ALL TESTS PASSED"

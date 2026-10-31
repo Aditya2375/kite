@@ -113,7 +113,7 @@ docs/     architecture notes
 
 Tested here: 26 lexer/parser unit checks, 13 programs compiled and
 executed for real on x86-64 Linux with golden stdout and asserted exit
-codes, and 12 error fixtures asserting the exact diagnostic text.
+codes, and 14 error fixtures asserting the exact diagnostic text.
 Division traps (divide by zero, INT64_MIN / -1) verified to raise SIGFPE
 at runtime as documented. Nested-call argument evaluation keeps the stack
 16-byte aligned at every call site. The scope limits are enforced with

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 static void usage(FILE *f) {
@@ -21,8 +22,13 @@ static void usage(FILE *f) {
 static char *read_file(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
+    /* a directory "reads" as ftell LONG_MAX on some systems: reject
+       anything that is not a regular file before sizing the buffer */
+    struct stat st;
+    if (fstat(fileno(f), &st) != 0 || !S_ISREG(st.st_mode)) { fclose(f); return NULL; }
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
+    if (size < 0) { fclose(f); return NULL; }
     fseek(f, 0, SEEK_SET);
     char *buf = malloc((size_t)size + 1);
     if (!buf) { perror("malloc"); exit(1); }
