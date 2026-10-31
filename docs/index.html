@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kite - a compiler, live in your browser</title>
+<style>
+  :root { --bg: #0d1117; --panel: #161b22; --edge: #30363d; --fg: #7ee787; --dim: #8b949e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.5 "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h1 .star { color: var(--dim); font-weight: normal; }
+  p.sub { color: var(--dim); margin: 0 0 20px; }
+  a { color: #58a6ff; }
+  .panel { background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; margin-bottom: 16px; }
+  .panel header { padding: 8px 12px; border-bottom: 1px solid var(--edge); color: var(--dim); font-size: 12px; }
+  textarea, pre.out { width: 100%; background: transparent; color: var(--fg); border: 0;
+             padding: 12px; font: inherit; outline: none; display: block; margin: 0; }
+  textarea { min-height: 220px; resize: vertical; }
+  pre.out { max-height: 420px; overflow: auto; white-space: pre; }
+  pre.out.err { color: #f85149; }
+  .row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  button { background: #21262d; color: var(--fg); border: 1px solid var(--edge);
+           border-radius: 6px; padding: 6px 14px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--fg); }
+  button:disabled { opacity: .5; cursor: wait; }
+</style>
+</head>
+<body>
+<main>
+  <h1>kite <span class="star">- a small compiled language</span></h1>
+  <p class="sub">The real compiler - lexer, parser, type checker, code generator - compiled
+     to WebAssembly, generating x86-64 assembly as you edit. Assembling and linking stay
+     native: they need a system toolchain and target x86-64 Linux.
+     <a href="https://github.com/Aditya2375/kite">Source on GitHub</a>.</p>
+
+  <div class="row">
+    <button id="compile" disabled>loading compiler...</button>
+    <button id="fib">fib</button>
+    <button id="fizzbuzz">fizzbuzz</button>
+  </div>
+
+  <div class="panel">
+    <header>program.kt - edit me</header>
+    <textarea id="src" spellcheck="false"></textarea>
+  </div>
+
+  <div class="panel">
+    <header>generated x86-64 assembly (AT&amp;T syntax)</header>
+    <pre class="out" id="out"></pre>
+  </div>
+</main>
+
+<script src="kite.js"></script>
+<script>
+const EXAMPLES = {
+  fib: `fn fib(n) {
+    if n < 2 {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fn main() {
+    let i = 0;
+    while i < 10 {
+        print(fib(i));
+        i = i + 1;
+    }
+    return 0;
+}
+`,
+  fizzbuzz: `fn main() {
+    let i = 1;
+    while i <= 20 {
+        let m3 = i % 3;
+        let m5 = i % 5;
+        if m3 == 0 && m5 == 0 {
+            print(999999);
+        } else if m3 == 0 {
+            print(999);
+        } else if m5 == 0 {
+            print(555);
+        } else {
+            print(i);
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+`
+};
+const src = document.getElementById("src");
+const out = document.getElementById("out");
+const btn = document.getElementById("compile");
+src.value = EXAMPLES.fib;
+document.getElementById("fib").onclick = () => { src.value = EXAMPLES.fib; btn.onclick(); };
+document.getElementById("fizzbuzz").onclick = () => { src.value = EXAMPLES.fizzbuzz; btn.onclick(); };
+
+let mod = null;
+KiteModule().then((m) => {
+  mod = m;
+  btn.disabled = false;
+  btn.textContent = "compile";
+  btn.onclick();
+});
+btn.onclick = () => {
+  const p = mod.ccall("kite_compile", "number", ["string"], [src.value]);
+  const text = mod.UTF8ToString(p);
+  mod.ccall("kite_free", null, ["number"], [p]);
+  const isAsm = text.startsWith(".text");
+  out.className = "out" + (isAsm ? "" : " err");
+  out.textContent = isAsm ? text : "error: " + text;
+};
+</script>
+</body>
+</html>

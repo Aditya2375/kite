@@ -1,5 +1,7 @@
 # kite
 
+**[Compile programs in your browser](https://aditya2375.github.io/kite/)** - the real compiler compiled to WebAssembly, generating x86-64 assembly live.
+
 A small compiled programming language. kite programs compile to native
 x86-64 Linux executables - the compiler lexes, parses, and type-checks
 names, then runs a semantic pass (name resolution, arity, scoping), then emits

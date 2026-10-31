@@ -191,6 +191,20 @@ static int gen_stmt(struct gen *g, const struct stmt *s) {
     return -1;
 }
 
+/* count let statements in a block, including nested blocks, to size the
+   stack frame */
+static int count_lets(struct stmt **body, int n) {
+    int c = 0;
+    for (int i = 0; i < n; i++) {
+        struct stmt *s = body[i];
+        if (s->kind == S_LET) c++;
+        c += count_lets(s->then_body, s->nthen);
+        c += count_lets(s->else_body, s->nelse);
+        c += count_lets(s->body, s->nbody);
+    }
+    return c;
+}
+
 static int gen_func(struct gen *g, const struct func *f) {
     FILE *o = g->out;
     g->nlocals = 0;
@@ -204,19 +218,7 @@ static int gen_func(struct gen *g, const struct func *f) {
         if (!add_local(g, f->params[i])) return -1;
 
     /* first pass to size the stack frame: count all lets (incl. nested) */
-    int extra = 0;
-    int count_lets(struct stmt **body, int n) {
-        int c = 0;
-        for (int i = 0; i < n; i++) {
-            struct stmt *s = body[i];
-            if (s->kind == S_LET) c++;
-            c += count_lets(s->then_body, s->nthen);
-            c += count_lets(s->else_body, s->nelse);
-            c += count_lets(s->body, s->nbody);
-        }
-        return c;
-    }
-    extra = count_lets(f->body, f->nbody);
+    int extra = count_lets(f->body, f->nbody);
 
     fprintf(o, ".globl kite_%s\nkite_%s:\n", f->name, f->name);
     fprintf(o, "\tpush %%rbp\n\tmov %%rsp, %%rbp\n");
