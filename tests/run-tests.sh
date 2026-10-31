@@ -83,5 +83,15 @@ if ./build/kite "$OUT/nomain.kt" -o "$OUT/nomain" 2>/dev/null; then
 fi
 echo "PASS error handling"
 
+# deep nesting must fail cleanly, not crash (stack overflow at 100k levels)
+python3 -c "print('fn main() {' + 'if 1 {' * 100000 + '}' * 100000 + '}')" > "$OUT/deep.kt"
+if ./build/kite "$OUT/deep.kt" -o "$OUT/deep" 2> "$OUT/deep.err"; then
+    echo "FAIL: 100k-deep nesting compiled" >&2
+    exit 1
+fi
+grep -q "nested too deeply" "$OUT/deep.err" || { echo "FAIL: deep nesting: wrong error:"; cat "$OUT/deep.err"; exit 1; }
+echo "PASS deep nesting rejected cleanly"
+
+
 sh tests/symlink_test.sh
 echo "ALL TESTS PASSED"

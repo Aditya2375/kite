@@ -112,7 +112,24 @@ static struct expr *parse_level(struct parser *ps, int level) {
     return lhs;
 }
 
-static struct expr *parse_expr(struct parser *ps) { return parse_level(ps, 0); }
+/* the parser recurses per nesting level; cap it so a pathological
+   program fails cleanly instead of overflowing the C stack */
+#define PARSE_MAX_DEPTH 512
+
+static struct expr *parse_expr_inner(struct parser *ps) { return parse_level(ps, 0); }
+
+static struct expr *parse_expr(struct parser *ps) {
+    if (ps->depth >= PARSE_MAX_DEPTH) {
+        snprintf(ps->err, sizeof ps->err,
+                 "line %d: expression nested too deeply (limit %d)",
+                 peek(ps)->line, PARSE_MAX_DEPTH);
+        return NULL;
+    }
+    ps->depth++;
+    struct expr *e = parse_expr_inner(ps);
+    ps->depth--;
+    return e;
+}
 
 static struct stmt *stmt_new(enum stmt_kind k) {
     struct stmt *s = xmalloc(sizeof *s);
@@ -121,7 +138,20 @@ static struct stmt *stmt_new(enum stmt_kind k) {
     return s;
 }
 
-static struct stmt *parse_stmt(struct parser *ps);
+static struct stmt *parse_stmt_inner(struct parser *ps);
+
+static struct stmt *parse_stmt(struct parser *ps) {
+    if (ps->depth >= PARSE_MAX_DEPTH) {
+        snprintf(ps->err, sizeof ps->err,
+                 "line %d: program nested too deeply (limit %d)",
+                 peek(ps)->line, PARSE_MAX_DEPTH);
+        return NULL;
+    }
+    ps->depth++;
+    struct stmt *st = parse_stmt_inner(ps);
+    ps->depth--;
+    return st;
+}
 
 static struct stmt **parse_block(struct parser *ps, int *count) {
     *count = 0;
@@ -146,7 +176,7 @@ static struct stmt **parse_block(struct parser *ps, int *count) {
     return body;
 }
 
-static struct stmt *parse_stmt(struct parser *ps) {
+static struct stmt *parse_stmt_inner(struct parser *ps) {
     struct token *t = peek(ps);
     int line = t->line;
     if (accept(ps, T_LET)) {

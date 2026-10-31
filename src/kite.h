@@ -78,6 +78,7 @@ struct parser {
     struct token *toks;
     int ntoks;
     int pos;
+    int depth;
     char err[256];
 };
 
