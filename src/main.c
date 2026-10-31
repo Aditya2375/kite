@@ -74,13 +74,27 @@ int main(int argc, char **argv) {
     }
 
     char asm_path[4096];
+    int asm_fd = -1;
     if (asm_only) {
         snprintf(asm_path, sizeof asm_path, "%s", output);
     } else {
-        snprintf(asm_path, sizeof asm_path, "/tmp/kite-%d.s", (int)getpid());
+        /* mkstemp: a predictable pid-based name in /tmp can be pre-created
+           as a symlink by another local user and written through */
+        snprintf(asm_path, sizeof asm_path, "/tmp/kite-XXXXXX");
+        asm_fd = mkstemp(asm_path);
+        if (asm_fd < 0) {
+            fprintf(stderr, "kite: cannot create a temp file for assembly\n");
+            program_free(prog);
+            return 1;
+        }
     }
-    FILE *out = fopen(asm_path, "w");
-    if (!out) { fprintf(stderr, "kite: cannot write %s\n", asm_path); return 1; }
+    FILE *out = asm_fd >= 0 ? fdopen(asm_fd, "w") : fopen(asm_path, "w");
+    if (!out) {
+        fprintf(stderr, "kite: cannot write %s\n", asm_path);
+        if (asm_fd >= 0) { close(asm_fd); unlink(asm_path); }
+        program_free(prog);
+        return 1;
+    }
     char err[256];
     if (gen_program(prog, out, err, sizeof err) != 0) {
         fclose(out);
@@ -97,7 +111,9 @@ int main(int argc, char **argv) {
         pid_t pid = fork();
         if (pid < 0) { perror("fork"); unlink(asm_path); return 1; }
         if (pid == 0) {
-            execlp("cc", "cc", "-nostdlib", "-static", "-o", output, asm_path, (char *)NULL);
+            /* no .s suffix on the temp name: tell cc what it is */
+            execlp("cc", "cc", "-nostdlib", "-static", "-x", "assembler",
+                   "-o", output, asm_path, (char *)NULL);
             _exit(127);
         }
         int status = 0;

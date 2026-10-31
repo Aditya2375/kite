@@ -82,4 +82,6 @@ if ./build/kite "$OUT/nomain.kt" -o "$OUT/nomain" 2>/dev/null; then
     exit 1
 fi
 echo "PASS error handling"
+
+sh tests/symlink_test.sh
 echo "ALL TESTS PASSED"
